@@ -1,4 +1,4 @@
-# Rust build outputs
+# Rust
 /target
 *.rs.bk
 
@@ -6,10 +6,10 @@
 *.sqlite
 *.db
 
-# Logs and misc
+# Logs/misc
 *.log
 .DS_Store
 
-# Env/config
+# Env
 .env
 .env.local
