@@ -1,0 +1,18 @@
+{% extends "layout.html" %}
+{% block title %}Blocks · solo-rs-pool{% endblock %}
+{% block content %}
+<h2>Blocks (recent)</h2>
+<table>
+  <thead><tr><th>Height</th><th>Hash</th><th>Status</th><th>Timestamp</th></tr></thead>
+  <tbody>
+  {% for b in blocks %}
+    <tr>
+      <td>{{ b.height }}</td>
+      <td><code>{{ b.hash }}</code></td>
+      <td>{{ b.status }}</td>
+      <td class="muted">{{ b.timestamp }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
