@@ -1,16 +1,15 @@
+use crate::job::merkle_root_from_txids;
 use anyhow::{Context, Result};
-use std::str::FromStr;
 use bitcoin::{
     block::{Header, Version},
     consensus::{deserialize, Encodable},
     hash_types::{BlockHash, TxMerkleNode},
-    pow,
-    Transaction,
+    pow, Transaction,
 };
 use bitcoin_hashes::{sha256d, Hash};
 use bitcoincore_rpc::RpcApi;
-use crate::job::merkle_root_from_txids;    
 use serde_json::{json, Value};
+use std::str::FromStr;
 use std::{net::SocketAddr, sync::Arc};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -100,7 +99,10 @@ impl StratumServer {
 
             match method {
                 "mining.subscribe" => {
-                    let job = self.jobman.get_current_job().await
+                    let job = self
+                        .jobman
+                        .get_current_job()
+                        .await
                         .ok_or_else(|| anyhow::anyhow!("no current job"))?;
 
                     let res = json!({
@@ -147,9 +149,13 @@ impl StratumServer {
 
                 "mining.submit" => {
                     let id_val = msg.get("id").cloned().unwrap_or(json!(3));
-                    let params: Vec<Value> = msg.get("params").and_then(|p| p.as_array()).cloned().unwrap_or_default();
+                    let params: Vec<Value> = msg
+                        .get("params")
+                        .and_then(|p| p.as_array())
+                        .cloned()
+                        .unwrap_or_default();
 
-                    let user = params.get(0).and_then(|v| v.as_str()).unwrap_or("unknown");
+                    let user = params.first().and_then(|v| v.as_str()).unwrap_or("unknown");
                     let job_id = params.get(1).and_then(|v| v.as_str()).unwrap_or("");
                     let ex2_hex = params.get(2).and_then(|v| v.as_str()).unwrap_or("");
                     let ntime_hex = params.get(3).and_then(|v| v.as_str()).unwrap_or("");
@@ -178,12 +184,8 @@ impl StratumServer {
                         }
                     };
 
-                    let coinbase_hex = format!(
-                        "{}{}{}",
-                        job.coinbase1,
-                        hex::encode(&ex2),
-                        job.coinbase2
-                    );
+                    let coinbase_hex =
+                        format!("{}{}{}", job.coinbase1, hex::encode(&ex2), job.coinbase2);
 
                     let coinbase_bytes = match hex::decode(&coinbase_hex) {
                         Ok(b) => b,
@@ -218,17 +220,16 @@ impl StratumServer {
                     }
 
                     let merkle_root = merkle_root_from_txids(&txids);
-                    let merkle_node = TxMerkleNode::from_raw_hash(
-                        sha256d::Hash::from_byte_array(merkle_root).into(),
-                    );
-
+                    let merkle_node =
+                        TxMerkleNode::from_raw_hash(sha256d::Hash::from_byte_array(merkle_root));
                     let version_u32 = u32::from_str_radix(&job.version, 16).unwrap_or(0);
-                    let prev_hash = BlockHash::from_str(&job.prevhash_be).unwrap_or_else(|_| BlockHash::all_zeros());
+                    let prev_hash = BlockHash::from_str(&job.prevhash_be)
+                        .unwrap_or_else(|_| BlockHash::all_zeros());
                     let nbits_u32 = u32::from_str_radix(&job.nbits, 16).unwrap_or(0);
                     let ct = pow::CompactTarget::from_consensus(nbits_u32);
                     let ntime_u32 = u32::from_str_radix(ntime_hex, 16).unwrap_or(0);
                     let nonce_u32 = u32::from_str_radix(nonce_hex, 16).unwrap_or(0);
-                    
+
                     // Fetch current tip (best prev for a new block)
                     let best_prev = self
                         .jobman
@@ -244,7 +245,7 @@ impl StratumServer {
                         w.write_all(format!("{err}\n").as_bytes()).await?;
                         continue;
                     }
-                    
+
                     tracing::info!(
                         "submit: job.prevhash_be={} (header.prev will be {})",
                         job.prevhash_be,
@@ -260,7 +261,9 @@ impl StratumServer {
                     };
 
                     let mut header_bytes = Vec::with_capacity(80);
-                    header.consensus_encode(&mut header_bytes).expect("header encode");
+                    header
+                        .consensus_encode(&mut header_bytes)
+                        .expect("header encode");
 
                     let header_hash = sha256d::Hash::hash(&header_bytes);
                     let net_target = pow::Target::from_compact(ct);
@@ -275,25 +278,46 @@ impl StratumServer {
                     w.write_all(format!("{ok}\n").as_bytes()).await?;
 
                     if meets_block {
-                        match self.jobman.submit_from_header_and_template(header_bytes.clone(), coinbase_bytes.clone(), &job).await {
+                        match self
+                            .jobman
+                            .submit_from_header_and_template(
+                                header_bytes.clone(),
+                                coinbase_bytes.clone(),
+                                &job,
+                            )
+                            .await
+                        {
                             Err(e) => {
                                 warn!("submitblock failed: {e}");
                                 // record rejected attempt (no height yet)
-                                let _ = self.storage.record_block(None, &hex::encode(sha256d::Hash::hash(&header_bytes)), "rejected").await;
+                                let _ = self
+                                    .storage
+                                    .record_block(
+                                        None,
+                                        &hex::encode(sha256d::Hash::hash(&header_bytes)),
+                                        "rejected",
+                                    )
+                                    .await;
                             }
                             Ok(()) => {
                                 info!("Block submitted to bitcoind!");
                                 // fetch tip + height and record "accepted"
                                 if let Ok(best) = self.jobman.node.rpc.get_best_block_hash() {
                                     let worker_id: String = params
-                                        .get(0)
+                                        .first()
                                         .and_then(|v| v.as_str())
                                         .unwrap_or("unknown")
                                         .to_string();
-                                    if let Ok(hdr) = self.jobman.node.rpc.get_block_header_info(&best) {
+                                    if let Ok(hdr) =
+                                        self.jobman.node.rpc.get_block_header_info(&best)
+                                    {
                                         let _ = self
                                             .storage
-                                            .record_block(Some(hdr.height as i64), &best.to_string(), "accepted")
+                                            .record_block(
+                                                Some(hdr.height as i64),
+                                                &best.to_string(),
+                                                "accepted",
+                                            )
                                             .await;
                                         let _ = self.storage.record_share(&worker_id, 1.0).await;
                                     } else {

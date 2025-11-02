@@ -46,19 +46,11 @@ async fn main() -> Result<()> {
         .parse()
         .context("parse WEB_ADDR")?;
     let db_path = env_or("POOL_DB", "./data/pool.sqlite");
-    tracing::info!(
-        "RPC URL={}, RPC USER={}",
-        rpc_url,
-        rpc_user
-    );
+    tracing::info!("RPC URL={}, RPC USER={}", rpc_url, rpc_user);
 
     // ---------- subsystems ----------
     let node = Arc::new(Node::new(
-        &rpc_url,
-        &rpc_user,
-        &rpc_pass,
-        &zmq_block,
-        &zmq_tx,
+        &rpc_url, &rpc_user, &rpc_pass, &zmq_block, &zmq_tx,
     )?);
     let storage = Storage::connect(&db_path).await.context("storage init")?;
     storage.ensure_schema().await?;

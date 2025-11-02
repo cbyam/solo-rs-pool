@@ -1,5 +1,5 @@
-use askama::Template;
 use crate::{job::StratumJob, storage::Worker};
+use askama::Template;
 
 /// Askama expects custom filters under a module named `filters`
 pub mod filters {

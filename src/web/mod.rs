@@ -8,12 +8,14 @@ use axum::{
     routing::get,
     Router,
 };
+use axum::{
+    extract::{Path, Query},
+    Json,
+};
+use serde::Deserialize;
 use std::{convert::Infallible, sync::Arc, time::Duration};
 use tokio::sync::broadcast;
 use tower_http::services::ServeDir;
-use axum::{extract::{Path, Query}, Json};
-use serde::Deserialize;
-
 
 #[derive(Clone)]
 pub struct AppState {
@@ -83,7 +85,10 @@ async fn events(
 }
 
 #[derive(Deserialize)]
-struct Win { window: Option<i64>, minutes: Option<i64> }
+struct Win {
+    window: Option<i64>,
+    minutes: Option<i64>,
+}
 
 async fn worker_metrics(
     State(state): State<AppState>,
@@ -92,11 +97,19 @@ async fn worker_metrics(
 ) -> impl IntoResponse {
     let window = win.window.unwrap_or(300); // 5m
     let minutes = win.minutes.unwrap_or(60); // sparkline 60m
-    let hps = state.storage.worker_hashrate_hps(&worker, window).await.unwrap_or(0.0);
-    let buckets = state.storage.share_buckets(&worker, minutes).await.unwrap_or_default();
+    let hps = state
+        .storage
+        .worker_hashrate_hps(&worker, window)
+        .await
+        .unwrap_or(0.0);
+    let buckets = state
+        .storage
+        .share_buckets(&worker, minutes)
+        .await
+        .unwrap_or_default();
 
     // normalize buckets -> [ [ts, count], ... ]
-    let series: Vec<(i64,i64)> = buckets;
+    let series: Vec<(i64, i64)> = buckets;
     Json(serde_json::json!({
         "worker": worker,
         "window_secs": window,

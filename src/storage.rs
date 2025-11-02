@@ -1,11 +1,10 @@
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{Row, sqlite::SqlitePoolOptions, Pool, Sqlite};
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqliteSynchronous};
+use sqlx::{sqlite::SqlitePoolOptions, Pool, Row, Sqlite};
 use std::path::Path;
 use tracing::info;
-
 
 #[derive(Clone)]
 pub struct Storage {
@@ -74,7 +73,7 @@ impl Storage {
             );
             CREATE INDEX IF NOT EXISTS idx_worker_shares_worker_ts
                 ON worker_shares(worker, ts);
-            "#
+            "#,
         )
         .execute(&self.pool)
         .await?;
@@ -121,8 +120,7 @@ impl Storage {
                 let name: String = r.get("name");
                 let authorized_i: i64 = r.get("authorized");
                 let last_seen_str: Option<String> = r.get("last_seen");
-                let last_seen = last_seen_str
-                    .and_then(|s| s.parse::<DateTime<Utc>>().ok());
+                let last_seen = last_seen_str.and_then(|s| s.parse::<DateTime<Utc>>().ok());
 
                 Worker {
                     id,
@@ -187,14 +185,12 @@ impl Storage {
     /// Record an accepted share for a worker (Stage-A: share_diff = 1.0).
     pub async fn record_share(&self, worker: &str, share_diff: f64) -> Result<()> {
         let ts = Utc::now().timestamp();
-        sqlx::query(
-            "INSERT INTO worker_shares(worker, ts, share_diff) VALUES (?1, ?2, ?3)"
-        )
-        .bind(worker)
-        .bind(ts)
-        .bind(share_diff)
-        .execute(&self.pool)
-        .await?;
+        sqlx::query("INSERT INTO worker_shares(worker, ts, share_diff) VALUES (?1, ?2, ?3)")
+            .bind(worker)
+            .bind(ts)
+            .bind(share_diff)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 
@@ -204,7 +200,7 @@ impl Storage {
         let (count, sum): (i64, Option<f64>) = sqlx::query_as(
             "SELECT COUNT(*), SUM(share_diff)
              FROM worker_shares
-             WHERE worker = ?1 AND ts >= ?2"
+             WHERE worker = ?1 AND ts >= ?2",
         )
         .bind(worker)
         .bind(cutoff)
@@ -222,7 +218,7 @@ impl Storage {
              FROM worker_shares
              WHERE worker = ?1 AND ts >= ?2
              GROUP BY bucket
-             ORDER BY bucket"
+             ORDER BY bucket",
         )
         .bind(worker)
         .bind(cutoff)
@@ -234,7 +230,9 @@ impl Storage {
     /// Rolling hashrate estimate (H/s) over `window_secs`:
     ///   H ≈ Σ(share_diff) * 2^32 / window_secs
     pub async fn worker_hashrate_hps(&self, worker: &str, window_secs: i64) -> Result<f64> {
-        if window_secs <= 0 { return Ok(0.0); }
+        if window_secs <= 0 {
+            return Ok(0.0);
+        }
         let (_count, sum_diff) = self.share_window(worker, window_secs).await?;
         const TWO32: f64 = 4294967296.0; // 2^32
         Ok(sum_diff * TWO32 / (window_secs as f64))

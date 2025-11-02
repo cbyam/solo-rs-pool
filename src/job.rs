@@ -43,7 +43,7 @@ pub struct JobManager {
     pub current_job: Arc<RwLock<Option<StratumJob>>>,
     pub sse_tx: tokio::sync::broadcast::Sender<String>,
     pub stratum_tx: tokio::sync::broadcast::Sender<String>,
-    pub last_publish: Arc<RwLock<std::time::Instant>>,   // ✅ new
+    pub last_publish: Arc<RwLock<std::time::Instant>>, // ✅ new
 }
 
 impl JobManager {
@@ -92,10 +92,7 @@ impl JobManager {
         job: &StratumJob,
     ) -> anyhow::Result<()> {
         use bitcoin::{
-            block::Header,
-            consensus::encode::deserialize,
-            transaction::Transaction,
-            Block,
+            block::Header, consensus::encode::deserialize, transaction::Transaction, Block,
         };
 
         // Decode the typed header and coinbase tx
@@ -140,12 +137,12 @@ impl JobManager {
         }
 
         // 2) Extract basics
-        let height_u32   = gbt.height as u32;
-        let prevhash_be  = gbt.previous_block_hash.to_string();
-        let version_hex  = format!("{:08x}", gbt.version as u32);
-        let bits_hex     = hex::encode(&gbt.bits);
-        let ntime_hex    = format!("{:08x}", gbt.current_time as u32);
-        let reward_sat   = gbt.coinbase_value.to_sat();
+        let height_u32 = gbt.height as u32;
+        let prevhash_be = gbt.previous_block_hash.to_string();
+        let version_hex = format!("{:08x}", gbt.version);
+        let bits_hex = hex::encode(&gbt.bits);
+        let ntime_hex = format!("{:08x}", gbt.current_time as u32);
+        let reward_sat = gbt.coinbase_value.to_sat();
 
         // 3) Non-coinbase txs (hex)
         let mut txs_hex = Vec::with_capacity(gbt.transactions.len());
@@ -171,8 +168,8 @@ impl JobManager {
         // scriptSig: BIP34-height || ex1 || <ex2 placeholder>
         let scriptsig = ScriptBuf::builder()
             .push_int(height_u32 as i64)
-            .push_slice(&ex1)
-            .push_slice(&ex2_placeholder)
+            .push_slice(ex1)
+            .push_slice(ex2_placeholder)
             .into_script();
 
         // Payout script (dummy anyone-can-spend OP_0 for regtest; replace later)
@@ -198,7 +195,9 @@ impl JobManager {
         // 5) Find the scriptSig in the serialized coinbase to split coinbase1/coinbase2
         use bitcoin::consensus::Encodable;
         let mut cb_ser = Vec::with_capacity(128);
-        coinbase.consensus_encode(&mut cb_ser).expect("encode coinbase");
+        coinbase
+            .consensus_encode(&mut cb_ser)
+            .expect("encode coinbase");
 
         let ss_bytes = scriptsig.as_bytes();
         let ss_pos = cb_ser
@@ -212,10 +211,10 @@ impl JobManager {
             .into_script();
         let height_len = height_only.as_bytes().len();
 
-        let ex2_start_in_ss = height_len + EXTRANONCE1_LEN;              // after height + ex1
-        let ex2_abs_start   = ss_pos + ex2_start_in_ss;                   // absolute offset in tx
-        let coinbase1       = hex::encode(&cb_ser[..ex2_abs_start]);      // up to ex2 start
-        let coinbase2       = hex::encode(&cb_ser[ex2_abs_start + EXTRANONCE2_LEN..]); // after ex2
+        let ex2_start_in_ss = height_len + EXTRANONCE1_LEN; // after height + ex1
+        let ex2_abs_start = ss_pos + ex2_start_in_ss; // absolute offset in tx
+        let coinbase1 = hex::encode(&cb_ser[..ex2_abs_start]); // up to ex2 start
+        let coinbase2 = hex::encode(&cb_ser[ex2_abs_start + EXTRANONCE2_LEN..]); // after ex2
 
         // 6) Convert witness commitment (ScriptBuf) → Option<String> (hex) for UI/debug
         let witness_commitment_hex: Option<String> = {
@@ -232,19 +231,19 @@ impl JobManager {
         // 7) Build job
         let job = StratumJob {
             job_id: format!("{:x}", rand::random::<u64>()),
-            prevhash: prevhash_be.clone(),   // (display)
-            prevhash_be: prevhash_be.clone(),// (typed)
+            prevhash: prevhash_be.clone(),    // (display)
+            prevhash_be: prevhash_be.clone(), // (typed)
             coinbase1,
             coinbase2,
-            merkle_branch: vec![],           // we submit full tx list
+            merkle_branch: vec![], // we submit full tx list
             version: version_hex,
             nbits: bits_hex,
             ntime: ntime_hex,
             clean_jobs: true,
             coinbase_value: reward_sat,
-            extranonce1: String::new(),      // informational; we publish ex1_hex separately
+            extranonce1: String::new(), // informational; we publish ex1_hex separately
             witness_commitment: witness_commitment_hex,
-            coinbasetxn_hex: String::new(),  // not used in this sliced mode
+            coinbasetxn_hex: String::new(), // not used in this sliced mode
             txs_hex,
             ex1_len: EXTRANONCE1_LEN,
             ex2_len: EXTRANONCE2_LEN,
@@ -263,7 +262,8 @@ impl JobManager {
                 "type":"job",
                 "prevhash": job.prevhash,
                 "job_id": job.job_id
-            }).to_string()
+            })
+            .to_string(),
         );
 
         // 10) Broadcast mining.notify to all stratum clients
@@ -296,11 +296,15 @@ pub(crate) fn merkle_root_from_txids(leaves: &[[u8; 32]]) -> [u8; 32] {
     }
     let mut layer = leaves.to_vec();
     while layer.len() > 1 {
-        let mut next = Vec::with_capacity((layer.len() + 1) / 2);
+        let mut next = Vec::with_capacity(layer.len().div_ceil(2));
         let mut i = 0;
         while i < layer.len() {
             let a = layer[i];
-            let b = if i + 1 < layer.len() { layer[i + 1] } else { layer[i] };
+            let b = if i + 1 < layer.len() {
+                layer[i + 1]
+            } else {
+                layer[i]
+            };
             let mut both = Vec::with_capacity(64);
             both.extend_from_slice(&a);
             both.extend_from_slice(&b);

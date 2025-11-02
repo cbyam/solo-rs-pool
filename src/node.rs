@@ -1,14 +1,17 @@
 use anyhow::Result;
-use bitcoincore_rpc::{Auth, Client, RpcApi};
+use bitcoin::BlockHash;
 use bitcoincore_rpc::json::{GetBlockTemplateModes, GetBlockTemplateResult, GetBlockTemplateRules};
+use bitcoincore_rpc::{Auth, Client, RpcApi};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
 use zmq::{Context as ZmqContext, SocketType};
-use bitcoin::BlockHash;
 
 #[derive(Clone, Copy, Debug)]
-pub enum ZmqEvent { Block, Tx }
+pub enum ZmqEvent {
+    Block,
+    Tx,
+}
 
 pub struct Node {
     pub rpc: Arc<Client>,
@@ -54,7 +57,7 @@ impl Node {
     {
         let ctx = ZmqContext::new();
         let block_sock = ctx.socket(SocketType::SUB)?;
-        let tx_sock    = ctx.socket(SocketType::SUB)?;
+        let tx_sock = ctx.socket(SocketType::SUB)?;
 
         block_sock.connect(&self.zmq_block)?;
         tx_sock.connect(&self.zmq_tx)?;
