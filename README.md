@@ -1,5 +1,5 @@
 [![Rust CI](https://github.com/cbyam/solo-rs-pool/actions/workflows/ci.yml/badge.svg)](https://github.com/cbyam/solo-rs-pool/actions)
-[![CodeQL](https://github.com/cbyam/solo-rs-pool/actions/workflows/codeql.yml/badge.svg)](https://github.com/cbyam/solo-rs-pool/actions/workflows/codeql.yml)
+[![CodeQL Analysis](https://github.com/cbyam/solo-rs-pool/actions/workflows/codeql-analysis.yml/badge.svg)](https://github.com/cbyam/solo-rs-pool/actions/workflows/codeql-analysis.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 # solo-rs-pool
 
