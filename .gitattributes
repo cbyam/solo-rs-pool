@@ -1,0 +1,36 @@
+# Ensure consistent line endings across platforms
+* text=auto eol=lf
+
+# Treat Rust and HTML templates as UTF-8 text
+*.rs text diff=rust
+*.toml text
+*.html text
+*.sql text
+*.md text
+*.json text
+*.yml text
+*.yaml text
+*.sh text
+*.env.example text
+
+# Mark binaries and build outputs as binary
+*.sqlite binary
+*.db binary
+*.png binary
+*.jpg binary
+*.ico binary
+*.wasm binary
+*.zip binary
+*.tar.gz binary
+target/** binary
+
+# Improve diffs for lockfiles and manifests
+Cargo.lock merge=union
+*.lock merge=union
+
+# Ignore large binaries in linguist stats (for GitHub language summary)
+target/* linguist-vendored
+data/* linguist-vendored
+
+# Explicitly declare templates as HTML for GitHub syntax highlighting
+src/web/templates/*.html linguist-language=HTML

@@ -1,0 +1,79 @@
+{% extends "layout.html" %}
+{% block title %}Workers · solo-rs-pool{% endblock %}
+{% block content %}
+<h1>Workers</h1>
+<table class="table">
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Authorized</th>
+      <th>Last seen</th>
+      <th class="right">Hashrate (5m)</th>
+      <th>Spark (60m)</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for w in workers %}
+    <tr data-worker="{{ w.name }}">
+      <td class="mono">{{ w.name }}</td>
+      <td>{% if w.authorized %}<span class="pill pill-ok">yes</span>{% else %}no{% endif %}</td>
+      <td class="muted">
+        {% if w.last_seen.is_some() %}
+          {{ w.last_seen.as_ref().unwrap()|format_rfc3339 }}
+        {% else %}-{% endif %}
+      </td>
+      <td class="right mono js-hps">—</td>
+      <td>
+        <svg class="spark" width="160" height="28" viewBox="0 0 160 28">
+          <polyline class="sparkline" fill="none" stroke="currentColor" stroke-width="2" points=""/>
+        </svg>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<script>
+// fetch metrics and draw sparkline
+(async function(){
+  const rows = Array.from(document.querySelectorAll('tr[data-worker]'));
+  async function refresh() {
+    await Promise.all(rows.map(async (tr) => {
+      const name = tr.getAttribute('data-worker');
+      const res = await fetch(`/api/worker/${encodeURIComponent(name)}/metrics?window=300&minutes=60`);
+      if (!res.ok) return;
+      const { hashrate_hps, spark } = await res.json();
+      const hpsCell = tr.querySelector('.js-hps');
+      if (hpsCell) hpsCell.textContent = formatH(hashrate_hps);
+
+      // spark = [[ts, count], ...] per minute
+      const svg = tr.querySelector('svg.spark');
+      const line = svg?.querySelector('.sparkline');
+      if (!svg || !line) return;
+      const W=160, H=28;
+      // build y from counts
+      const ys = spark.map(([_, c]) => c);
+      const max = Math.max(1, ...ys);
+      const n = Math.max(1, ys.length);
+      const step = W / (n-1 || 1);
+      let pts = '';
+      ys.forEach((v, i) => {
+        const x = Math.round(i*step);
+        const y = Math.round(H - (v/max)*(H-2) - 1);
+        pts += `${x},${y} `;
+      });
+      line.setAttribute('points', pts.trim());
+    }));
+  }
+  function formatH(hps){
+    if (hps < 1e3) return `${hps.toFixed(0)} H/s`;
+    if (hps < 1e6) return `${(hps/1e3).toFixed(2)} kH/s`;
+    if (hps < 1e9) return `${(hps/1e6).toFixed(2)} MH/s`;
+    if (hps < 1e12) return `${(hps/1e9).toFixed(2)} GH/s`;
+    return `${(hps/1e12).toFixed(2)} TH/s`;
+  }
+  await refresh();
+  setInterval(refresh, 5000);
+})();
+</script>
+{% endblock %}

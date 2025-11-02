@@ -2,6 +2,13 @@
 name = "solo-rs-pool"
 version = "0.1.0"
 edition = "2021"
+description = "A lightweight Stratum V1 solo mining pool for Bitcoin Core (regtest/testnet/mainnet), written in Rust."
+authors = ["Chuck Byam <cbyam@icloud.com>"]
+license = "MIT"
+repository = "https://github.com/cbyam/solo-rs-pool"
+readme = "README.md"
+keywords = ["bitcoin", "stratum", "mining", "rust"]
+categories = ["cryptography", "network-programming", "web-programming"]
 
 [dependencies]
 anyhow = "1"
@@ -16,7 +23,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 tower = "0.4"
 tower-http = { version = "0.5", features = ["fs", "trace"] }
-bitcoin = "0.32"
+bitcoin = { version = "0.32.7", features = ["std"] }
+bitcoin_hashes = "0.14"
 bitcoincore-rpc = "0.19"
 hex = "0.4"
 sha2 = "0.10"
@@ -26,9 +34,7 @@ chrono = { version = "0.4", features = ["serde"] }
 futures-util = "0.3"
 async-stream = "0.3"
 futures-core = "0.3"
-
+reqwest = { version = "0.12", features = ["json"] }
 sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "sqlite", "chrono"] }
 dotenvy = "0.15"
 
-[build-dependencies]
-askama = "0.12"

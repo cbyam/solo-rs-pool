@@ -1,98 +1,145 @@
-#![allow(clippy::needless_return)]
-mod node;
-mod stratum;
+use anyhow::{Context, Result};
+use std::{env, net::SocketAddr, sync::Arc};
+use tokio::time::sleep;
+use tracing::{error, info};
+use tracing_subscriber::{fmt, EnvFilter};
+
+use dotenvy::dotenv; // ✅ load .env automatically
+
 mod job;
+mod node;
 mod storage;
+mod stratum;
 mod web;
 
-use anyhow::Result;
-use axum::Router;
-use std::{net::SocketAddr, sync::Arc};
-use tokio::sync::{broadcast};
-use tracing_subscriber::EnvFilter;
+use crate::job::JobManager;
+use crate::node::Node;
+use crate::storage::Storage;
+use crate::stratum::StratumServer;
+use crate::web::AppState;
 
-use crate::{
-    job::JobManager,
-    storage::Storage,
-    node::Node,
-};
-
-#[derive(Clone)]
-pub struct AppState {
-    pub storage: Storage,
-    pub jobman: Arc<JobManager>,
-    pub sse_tx: broadcast::Sender<String>,
+fn env_or(key: &str, default: &str) -> String {
+    env::var(key).unwrap_or_else(|_| default.to_string())
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    dotenvy::dotenv().ok();
-
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env()
-            .add_directive("solo_rs_pool=info".parse().unwrap())
-            .add_directive("axum::rejection=warn".parse().unwrap()))
+    // ---------- env + logging ----------
+    dotenv().ok(); // ✅ load .env
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    fmt()
+        .with_env_filter(filter)
+        .with_target(false)
+        .compact()
         .init();
 
-    // Config (env)
-    let rpc_url = std::env::var("BITCOIN_RPC_URL")
-        .unwrap_or_else(|_| "http://127.0.0.1:18443".into());
-    let rpc_user = std::env::var("BITCOIN_RPC_USER").unwrap_or_else(|_| "user".into());
-    let rpc_pass = std::env::var("BITCOIN_RPC_PASS").unwrap_or_else(|_| "pass".into());
-    let zmq_block = std::env::var("BITCOIN_ZMQ_BLOCK").unwrap_or_else(|_| "tcp://127.0.0.1:28332".into());
-    let zmq_tx = std::env::var("BITCOIN_ZMQ_TX").unwrap_or_else(|_| "tcp://127.0.0.1:28333".into());
-    let db_path = std::env::var("POOL_DB").unwrap_or_else(|_| "pool.sqlite".into());
-    let stratum_addr: SocketAddr = std::env::var("STRATUM_ADDR")
-        .unwrap_or_else(|_| "0.0.0.0:3333".into())
-        .parse()?;
-    let web_addr: SocketAddr = std::env::var("WEB_ADDR")
-        .unwrap_or_else(|_| "0.0.0.0:8080".into())
-        .parse()?;
+    // ---------- configuration ----------
+    let rpc_url = env_or("BITCOIN_RPC_URL", "http://127.0.0.1:18443");
+    let rpc_user = env_or("BITCOIN_RPC_USER", "solo");
+    let rpc_pass = env_or("BITCOIN_RPC_PASS", "solo123");
+    let zmq_block = env_or("BITCOIN_ZMQ_BLOCK", "tcp://127.0.0.1:28342");
+    let zmq_tx = env_or("BITCOIN_ZMQ_TX", "tcp://127.0.0.1:28343");
+    let stratum_addr: SocketAddr = env_or("STRATUM_ADDR", "0.0.0.0:3335")
+        .parse()
+        .context("parse STRATUM_ADDR")?;
+    let web_addr: SocketAddr = env_or("WEB_ADDR", "0.0.0.0:8080")
+        .parse()
+        .context("parse WEB_ADDR")?;
+    let db_path = env_or("POOL_DB", "./data/pool.sqlite");
+    tracing::info!(
+        "RPC URL={}, RPC USER={}",
+        rpc_url,
+        rpc_user
+    );
 
-    // Storage
-    let storage = Storage::connect(&db_path).await?;
+    // ---------- subsystems ----------
+    let node = Arc::new(Node::new(
+        &rpc_url,
+        &rpc_user,
+        &rpc_pass,
+        &zmq_block,
+        &zmq_tx,
+    )?);
+    let storage = Storage::connect(&db_path).await.context("storage init")?;
     storage.ensure_schema().await?;
 
-    // SSE broadcast
-    let (sse_tx, _sse_rx) = broadcast::channel::<String>(1024);
+    let (sse_tx, _sse_rx) = tokio::sync::broadcast::channel::<String>(64);
+    let (stratum_tx, _) = tokio::sync::broadcast::channel::<String>(100);
 
-    // Node + Job manager
-    let node = Node::connect(&rpc_url, &rpc_user, &rpc_pass, &zmq_block, &zmq_tx).await?;
-    let jobman = Arc::new(JobManager::new(node.clone(), storage.clone(), sse_tx.clone()));
+    let jobman = Arc::new(JobManager::new(
+        node,
+        storage.clone(),
+        sse_tx.clone(),
+        stratum_tx.clone(),
+    ));
 
-    // Preload job
-    jobman.refresh_job().await?;
+    let stratum = StratumServer::new(
+        jobman.clone(),
+        storage.clone(),
+        sse_tx.clone(),
+        stratum_tx.clone(),
+    );
 
-    // Spawn ZMQ watcher
+    // ---- initial job ----
+    let mut tries = 0usize;
+    loop {
+        match jobman.refresh_job().await {
+            Ok(_) => break,
+            Err(e) => {
+                tries += 1;
+                error!("initial job failed (attempt {tries}): {e:#}");
+                if tries > 10 {
+                    anyhow::bail!("failed to fetch initial job after 10 attempts: {e:#}");
+                }
+                sleep(std::time::Duration::from_secs(1)).await;
+            }
+        }
+    }
+
+    info!(
+        "Job ready – prevhash {}",
+        jobman.get_current_job().await.unwrap().prevhash
+    );
+
+    // ---- web UI ----
+    {
+        let state = AppState {
+            storage: storage.clone(),
+            jobman: jobman.clone(),
+            sse_tx: sse_tx.clone(),
+        };
+        let app = web::build_router(state);
+        let web = tokio::spawn(async move {
+            axum::serve(tokio::net::TcpListener::bind(web_addr).await.unwrap(), app)
+                .await
+                .unwrap();
+        });
+        info!("Web UI → http://{web_addr}");
+        tokio::task::spawn(web);
+    }
+
+    // ---- stratum ----
+    {
+        let stratum = stratum.clone();
+        let stratum_task = tokio::spawn(async move {
+            stratum.run(stratum_addr).await.unwrap();
+        });
+        info!("Stratum → {stratum_addr}");
+        tokio::task::spawn(stratum_task);
+    }
+
+    // ---- ZMQ watcher ----
     {
         let jm = jobman.clone();
         tokio::spawn(async move {
             if let Err(e) = jm.run_block_tx_watcher().await {
-                tracing::error!("ZMQ watcher exited: {e:?}");
+                error!("ZMQ watcher died: {e:#}");
             }
         });
     }
 
-    // Spawn Stratum
-    {
-        let jm = jobman.clone();
-        let st = storage.clone();
-        let sse = sse_tx.clone();
-        tokio::spawn(async move {
-            let server = stratum::StratumServer::new(jm, st, sse);
-            if let Err(e) = server.run(stratum_addr).await {
-                tracing::error!("Stratum server exited: {e:?}");
-            }
-        });
-    }
-
-    // Web
-    let state = AppState { storage: storage.clone(), jobman: jobman.clone(), sse_tx: sse_tx.clone() };
-    let app: Router = web::build_router(state);
-
-    tracing::info!("Web UI on http://{web_addr}");
-    tracing::info!("Stratum listening on {stratum_addr}");
-    axum::serve(tokio::net::TcpListener::bind(web_addr).await?, app).await?;
-
+    // keep alive forever
+    futures_util::future::pending::<()>().await;
+    #[allow(unreachable_code)]
     Ok(())
 }

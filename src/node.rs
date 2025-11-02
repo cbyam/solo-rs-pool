@@ -1,21 +1,31 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use bitcoincore_rpc::{Auth, Client, RpcApi};
-use serde_json::json;
+use bitcoincore_rpc::json::{GetBlockTemplateModes, GetBlockTemplateResult, GetBlockTemplateRules};
 use std::sync::Arc;
-use tokio::task;
-use tracing::info;
+use std::time::Duration;
+use tokio::time::sleep;
+use zmq::{Context as ZmqContext, SocketType};
+use bitcoin::BlockHash;
 
-#[derive(Clone)]
+#[derive(Clone, Copy, Debug)]
+pub enum ZmqEvent { Block, Tx }
+
 pub struct Node {
     pub rpc: Arc<Client>,
-    pub zmq_block: String,
-    pub zmq_tx: String,
+    zmq_block: String,
+    zmq_tx: String,
 }
 
 impl Node {
-    pub async fn connect(rpc_url: &str, user: &str, pass: &str, zmq_block: &str, zmq_tx: &str) -> Result<Self> {
-        let rpc = Client::new(rpc_url, Auth::UserPass(user.to_string(), pass.to_string()))
-            .context("bitcoincore-rpc connect failed")?;
+    pub fn new(
+        rpc_url: &str,
+        rpc_user: &str,
+        rpc_pass: &str,
+        zmq_block: &str,
+        zmq_tx: &str,
+    ) -> Result<Self> {
+        let auth = Auth::UserPass(rpc_user.to_string(), rpc_pass.to_string());
+        let rpc = Client::new(rpc_url, auth)?;
         Ok(Self {
             rpc: Arc::new(rpc),
             zmq_block: zmq_block.to_string(),
@@ -23,56 +33,45 @@ impl Node {
         })
     }
 
-    pub async fn best_block_hash(&self) -> Result<String> {
-        Ok(self.rpc.get_best_block_hash()?.to_string())
+    pub async fn get_block_template_raw(&self) -> Result<GetBlockTemplateResult> {
+        self.rpc
+            .get_block_template(
+                GetBlockTemplateModes::Template,
+                &[GetBlockTemplateRules::SegWit],
+                &[],
+            )
+            .map_err(Into::into)
     }
 
-    pub async fn get_block_template_raw(&self) -> Result<serde_json::Value> {
-        let req = json!({ "rules": ["segwit"] });
-        let v = self.rpc.call::<serde_json::Value>("getblocktemplate", &[req])?;
-        Ok(v)
+    #[allow(dead_code)]
+    pub async fn get_current_tip(&self) -> Result<BlockHash> {
+        Ok(self.rpc.get_best_block_hash()?)
     }
 
-    /// Blocking ZMQ listener stub that wakes the job manager when blocks/tx arrive.
     pub async fn run_zmq_watch<F>(&self, mut on_event: F) -> Result<()>
     where
-        F: FnMut(String) + Send + 'static,
+        F: FnMut(ZmqEvent) + Send + 'static,
     {
-        let block_ep = self.zmq_block.clone();
-        let tx_ep = self.zmq_tx.clone();
+        let ctx = ZmqContext::new();
+        let block_sock = ctx.socket(SocketType::SUB)?;
+        let tx_sock    = ctx.socket(SocketType::SUB)?;
 
-        task::spawn_blocking(move || -> Result<()> {
-            let ctx = zmq::Context::new();
-            let block_sub = ctx.socket(zmq::SUB)?;
-            block_sub.connect(&block_ep)?;
-            block_sub.set_subscribe(b"hashblock")?;
+        block_sock.connect(&self.zmq_block)?;
+        tx_sock.connect(&self.zmq_tx)?;
 
-            let tx_sub = ctx.socket(zmq::SUB)?;
-            tx_sub.connect(&tx_ep)?;
-            tx_sub.set_subscribe(b"hashtx")?;
+        // subscribe to everything on each endpoint (these endpoints are already segregated)
+        block_sock.set_subscribe(&[])?;
+        tx_sock.set_subscribe(&[])?;
 
-            info!("ZMQ connected: {block_ep} (blocks), {tx_ep} (tx)");
-
-            let poll_items = &mut [
-                block_sub.as_poll_item(zmq::POLLIN),
-                tx_sub.as_poll_item(zmq::POLLIN),
-            ];
-
-            loop {
-                zmq::poll(poll_items, 1000)?;
-                if poll_items[0].is_readable() {
-                    let _topic = block_sub.recv_bytes(0)?;
-                    let _hash = block_sub.recv_bytes(0)?;
-                    on_event("block".into());
-                }
-                if poll_items[1].is_readable() {
-                    let _topic = tx_sub.recv_bytes(0)?;
-                    let _hash = tx_sub.recv_bytes(0)?;
-                    on_event("tx".into());
-                }
+        loop {
+            let mut msg = zmq::Message::new();
+            // fire only one callback per poll-iteration; prefer block over tx
+            if block_sock.recv(&mut msg, zmq::DONTWAIT).is_ok() {
+                on_event(ZmqEvent::Block);
+            } else if tx_sock.recv(&mut msg, zmq::DONTWAIT).is_ok() {
+                on_event(ZmqEvent::Tx);
             }
-        });
-
-        Ok(())
+            sleep(Duration::from_millis(100)).await;
+        }
     }
 }

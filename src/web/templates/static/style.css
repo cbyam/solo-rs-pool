@@ -1,0 +1,59 @@
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  margin: 2rem auto;
+  max-width: 900px;
+  line-height: 1.5;
+  color: #222;
+  background: #fafafa;
+}
+
+header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  border-bottom: 1px solid #ccc;
+  margin-bottom: 1rem;
+}
+
+header h1 {
+  font-size: 1.6rem;
+  margin: 0;
+}
+
+header nav a {
+  margin-right: 0.75rem;
+  text-decoration: none;
+  color: #0366d6;
+}
+
+header nav a:hover {
+  text-decoration: underline;
+}
+
+h2 {
+  margin-top: 1.5rem;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin-top: 0.5rem;
+}
+
+table th, table td {
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid #ddd;
+}
+
+.pill {
+  background: #007bff;
+  color: #fff;
+  padding: 0 6px;
+  border-radius: 3px;
+  font-size: 0.8em;
+}
+
+.muted {
+  color: #777;
+  font-size: 0.9em;
+}
