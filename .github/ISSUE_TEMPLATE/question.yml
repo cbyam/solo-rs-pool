@@ -1,0 +1,20 @@
+name: ❓ Question / Help
+description: Ask about setup, configuration, or design
+labels: [question]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For general usage or setup questions.
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: OS, Rust version, bitcoind version, etc.
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+      placeholder: Ask away…
+      validations:
+        required: true

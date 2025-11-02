@@ -1,0 +1,31 @@
+name: 💡 Feature Request
+description: Suggest an idea or enhancement for solo-rs-pool
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have an idea to improve solo-rs-pool? Please describe it clearly and explain why it would help.
+  - type: input
+    id: context
+    attributes:
+      label: Context / Use Case
+      placeholder: Why do you need this feature?
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      placeholder: Describe how you’d like this to work
+      validations:
+        required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Stratum Protocol
+        - Web Dashboard
+        - SQLite / Metrics
+        - Job Manager
+        - RPC Integration
+        - Other
