@@ -1,4 +1,4 @@
-name: Rust CI
+name: CodeQL Analysis
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
   pull_request:
     branches: [ "main" ]
   schedule:
-    - cron: '0 6 * * 1'  # weekly Monday scan
+    - cron: "0 6 * * 1" # weekly Monday scan
 
 jobs:
   analyze:
@@ -20,23 +20,24 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [ 'rust' ]
+        language: [ rust ]
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
           languages: ${{ matrix.language }}
 
-      - name: Install stable Rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          override: true
+      # Install stable toolchain (modern, actively maintained action)
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
 
+      # Build so CodeQL can analyze compiled crates
       - name: Build project
         run: cargo build --verbose
 
